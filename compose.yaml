@@ -1,0 +1,9 @@
+services:
+  ha-agent:
+    build: .
+    env_file:
+      - .env
+    restart: "no"
+    network_mode: host
+    stdin_open: true
+    tty: true
