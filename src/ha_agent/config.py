@@ -1,4 +1,5 @@
 from typing import Literal
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -8,6 +9,7 @@ class Settings(BaseSettings):
 
     ha_mcp_url: str
     ha_token: str
+    ha_base_url: str | None = None
 
     llm_provider: Literal["openai", "openrouter", "openai-compatible"] = "openai"
     llm_api_key: str | None = None
@@ -19,6 +21,12 @@ class Settings(BaseSettings):
     openrouter_api_key: str | None = None
 
     max_tool_rounds: int = 8
+
+    ha_history_enabled: bool = True
+    ha_history_max_entities: int = 5
+    ha_history_max_days: int = 14
+    ha_statistics_max_days: int = 3650
+    ha_history_max_points: int = 2000
 
     ha_write_enabled: bool = False
     ha_safe_write_tools: str = ""
@@ -32,6 +40,15 @@ class Settings(BaseSettings):
     @staticmethod
     def _csv(value: str) -> frozenset[str]:
         return frozenset(item.strip() for item in value.split(",") if item.strip())
+
+    @property
+    def resolved_ha_base_url(self) -> str:
+        if self.ha_base_url:
+            return self.ha_base_url.rstrip("/")
+        parsed = urlsplit(self.ha_mcp_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.netloc:
+            raise ValueError("HA_MCP_URL must be an absolute http(s) URL")
+        return urlunsplit((parsed.scheme, parsed.netloc, "", "", "")).rstrip("/")
 
     @property
     def provider_api_key(self) -> str:
