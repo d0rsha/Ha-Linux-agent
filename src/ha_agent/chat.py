@@ -84,8 +84,8 @@ class RateLimiter:
 
     def allow(self, identity: str) -> bool:
         now = time.monotonic()
-        previous = self._last.get(identity, 0.0)
-        if now - previous < self.min_interval_seconds:
+        previous = self._last.get(identity)
+        if previous is not None and now - previous < self.min_interval_seconds:
             return False
         self._last[identity] = now
         return True
