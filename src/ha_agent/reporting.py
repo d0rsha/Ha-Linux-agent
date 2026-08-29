@@ -54,12 +54,14 @@ def load_report_prompt(path: str, anomalies_only: bool = False) -> str:
 
 
 async def _ask_with_retries(settings: Settings, prompt: str) -> str:
+    # Scheduled reports are always read-only, independently of interactive/chat write settings.
+    report_settings = settings.model_copy(update={"ha_write_enabled": False})
     attempts = settings.report_retries + 1
     last_error: Exception | None = None
     for attempt in range(attempts):
         try:
             async with asyncio.timeout(settings.report_timeout_seconds):
-                return await ask_home(settings, prompt)
+                return await ask_home(report_settings, prompt)
         except Exception as exc:  # scheduler boundary: retry transient provider/tool failures
             last_error = exc
             LOGGER.exception("report attempt %s/%s failed", attempt + 1, attempts)
