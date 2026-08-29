@@ -11,6 +11,8 @@ from .agent import ask_home
 from .config import Settings
 from .models import ToolCall
 from .policy import PolicyDecision
+from .security import redact_text
+from .storage import SQLiteStore, StoredMessage, StoredSession
 
 
 @dataclass(frozen=True)
@@ -33,7 +35,7 @@ class SessionStore(Protocol):
 
 
 class JsonSessionStore:
-    """Small persistent store for v0.4 chat state; SQLite migration is tracked separately."""
+    """Legacy v0.4 session store retained for compatibility and migration."""
 
     def __init__(self, directory: str, max_messages: int = 20) -> None:
         self.directory = Path(directory)
@@ -77,6 +79,34 @@ class JsonSessionStore:
                 os.unlink(temp_name)
 
 
+class SQLiteSessionStore:
+    """SessionStore backed by the shared v0.6 SQLite state database."""
+
+    def __init__(self, store: SQLiteStore, secrets: tuple[str, ...] = ()) -> None:
+        self.store = store
+        self.secrets = secrets
+
+    def load(self, session_id: str) -> ChatSession:
+        stored = self.store.load_session(session_id)
+        return ChatSession(
+            session_id=stored.session_id,
+            messages=[ChatMessage(item.role, item.text, item.created_at) for item in stored.messages],
+            approve_sensitive_until=stored.approve_sensitive_until,
+        )
+
+    def save(self, session: ChatSession) -> None:
+        self.store.save_session(
+            StoredSession(
+                session_id=session.session_id,
+                messages=[
+                    StoredMessage(item.role, redact_text(item.text, self.secrets), item.created_at)
+                    for item in session.messages
+                ],
+                approve_sensitive_until=session.approve_sensitive_until,
+            )
+        )
+
+
 class RateLimiter:
     def __init__(self, min_interval_seconds: float) -> None:
         self.min_interval_seconds = min_interval_seconds
@@ -118,8 +148,6 @@ class ChatService:
             question = text if not context else f"Conversation context:\n{context}\n\nCurrent user request:\n{text}"
             approval_available = session.approve_sensitive_until >= time.time()
             approval_consumed = False
-
-            # A grant applies to this request only, and to at most one sensitive tool call.
             session.approve_sensitive_until = 0.0
 
             def _confirm(_call: ToolCall, _decision: PolicyDecision) -> bool:
@@ -130,9 +158,13 @@ class ChatService:
                 return False
 
             try:
-                answer = await ask_home(self.settings, question, confirm_sensitive=_confirm)
+                answer = await ask_home(
+                    self.settings,
+                    question,
+                    confirm_sensitive=_confirm,
+                    session_id=session_id,
+                )
             finally:
-                # Persist grant consumption even when the provider/tool request fails.
                 self.store.save(session)
 
             now = time.time()
