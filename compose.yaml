@@ -21,5 +21,17 @@ services:
     volumes:
       - ha-agent-data:/data
 
+  ha-agent-host-mcp:
+    build: .
+    env_file:
+      - .env
+    command: ["host-mcp"]
+    restart: unless-stopped
+    network_mode: host
+    pid: host
+    profiles: ["host-mcp"]
+    volumes:
+      - ha-agent-data:/data
+
 volumes:
   ha-agent-data:

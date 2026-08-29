@@ -1,8 +1,8 @@
-# HA Linux Agent v0.4
+# HA Linux Agent v0.5
 
 A small, headless AI agent that runs on a Linux server and uses Home Assistant through its MCP Server integration.
 
-v0.4 builds on v0.3 native Home Assistant historical analysis with scheduled house-health reports and a persistent remote chat transport.
+v0.5 adds restricted Linux host diagnostics and broader security hardening on top of scheduled reports, persistent chat, and native Home Assistant historical analysis.
 
 ## Architecture
 
@@ -10,6 +10,7 @@ The agent uses:
 
 - **Home Assistant MCP** for live context and policy-controlled actions.
 - **Home Assistant REST/WebSocket APIs** for read-only historical data and report notification delivery.
+- **Restricted host diagnostics** for read-only Linux CPU, memory, disk, service, Docker, log, uptime, and reachability evidence.
 - **External scheduling** (systemd/cron) for deterministic report runs.
 - **Transport-independent chat services**, with Telegram as the first adapter.
 
@@ -17,20 +18,25 @@ Historical access never opens `home-assistant_v2.db` directly. InfluxDB and Graf
 
 ## Security model
 
-There are two independent boundaries:
+There are independent permission boundaries:
 
 1. **Home Assistant MCP** controls what is exposed and whether Home Assistant control is enabled.
-2. **HA Linux Agent policy** filters which tools the model can see and authorizes every tool call before execution.
+2. **Host diagnostics MCP** exposes only a narrow read-only host tool set.
+3. **HA Linux Agent policy** filters which tools the model can see and authorizes every tool call before execution.
 
 Unknown MCP tools are blocked by default. Administrative tools are prohibited. Sensitive writes require explicit confirmation.
 
 Scheduled reports are forcibly read-only even if interactive/chat writes are enabled.
 
-The local historical tools are read-only:
+All tool output is treated as untrusted data before it is returned to the model. Secrets are redacted from model-visible tool output and audit logs. Each agent request receives a correlation ID, and `AUDIT_LOG_PATH` can enable a persistent JSONL audit trail.
+
+The local historical and host diagnostic tools are read-only:
 
 - `GetHistory` — recent Recorder state history.
 - `ListStatistics` — discover long-term statistic IDs.
 - `GetStatistics` — query bounded long-term statistics.
+- `GetCpu`, `GetMemory`, `GetDiskUsage`, `GetHostUptime`
+- `CheckHostReachability`, `GetServiceStatus`, `GetDockerContainers`, `ReadSelectedLogs`
 
 ## Linux deployment
 
@@ -85,6 +91,42 @@ docker compose run --rm ha-agent statistics sensor.example \
 ```
 
 Missing or purged data is treated as missing data, not evidence that an event did not occur.
+
+## Host diagnostics
+
+Cheap local `/proc` diagnostics are enabled by default:
+
+```env
+HOST_DIAGNOSTICS_ENABLED=true
+HOST_PROC_ROOT=/proc
+HOST_DISK_PATHS=/
+```
+
+Direct checks do not involve the LLM:
+
+```bash
+docker compose run --rm ha-agent host cpu
+docker compose run --rm ha-agent host memory
+docker compose run --rm ha-agent host disk --path /
+docker compose run --rm ha-agent host uptime
+```
+
+Higher-risk surfaces require explicit allowlists before the tools can return data:
+
+```env
+HOST_SERVICE_ALLOWLIST=ssh.service,docker.service
+HOST_LOG_PATHS=/var/log
+HOST_REACHABILITY_TARGETS=homeassistant.local:8123
+```
+
+Run a host MCP server for another managed Linux host:
+
+```bash
+HOST_MCP_TOKEN=replace-with-long-random-token
+docker compose --profile host-mcp up -d ha-agent-host-mcp
+```
+
+On the main agent, set `HOST_MCP_URLS=http://host-vpn-ip:8750/mcp` and the same `HOST_MCP_TOKEN`. Keep host MCP endpoints on LAN/VPN/Tailscale, not the public internet. Docker status requires opting in to a socket path and container allowlist. See [`docs/host-mcp.md`](docs/host-mcp.md) and [`docs/security.md`](docs/security.md).
 
 ## Scheduled reports
 
@@ -190,4 +232,3 @@ GitHub Actions runs the same suite for pushes and pull requests.
 
 - SQLite conversation, memory, and persistent audit history (#6).
 - Optional InfluxDB historical backend if it proves useful (#12).
-- Restricted Linux/PC MCP diagnostics and broader security hardening.

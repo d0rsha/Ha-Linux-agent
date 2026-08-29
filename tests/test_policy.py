@@ -6,7 +6,7 @@ from ha_agent.policy import PermissionTier, PolicyAction, ToolPolicy
 def settings(**overrides):
     base = {"ha_mcp_url": "http://ha/api/mcp/assist", "ha_token": "token", "openai_api_key": "test"}
     base.update(overrides)
-    return Settings(**base)
+    return Settings(_env_file=None, **base)
 
 
 def test_read_tools_are_visible_by_default():
@@ -39,3 +39,19 @@ def test_sensitive_name_term_escalates_to_confirmation():
 def test_explicit_sensitive_tool_always_requires_confirmation():
     decision = ToolPolicy(settings(ha_write_enabled=True, ha_sensitive_write_tools="ArmAlarm")).authorize("ArmAlarm", {})
     assert decision.action == PolicyAction.CONFIRM
+
+
+def test_host_tools_are_read_only_even_when_writes_enabled():
+    policy = ToolPolicy(settings(ha_write_enabled=True))
+    decision = policy.authorize("ReadSelectedLogs", {"path": "/var/log/app.log"})
+    assert decision.action == PolicyAction.ALLOW
+    assert decision.tier == PermissionTier.READ
+
+
+def test_host_tools_are_visible_as_explicit_read_tools():
+    policy = ToolPolicy(settings(ha_read_tool_prefixes="", ha_write_enabled=False))
+    tools = [
+        ToolDefinition("ReadSelectedLogs", "host logs", {}),
+        ToolDefinition("HassTurnOn", "write", {}),
+    ]
+    assert [tool.name for tool in policy.visible_tools(tools)] == ["ReadSelectedLogs"]

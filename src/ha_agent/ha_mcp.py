@@ -15,14 +15,19 @@ class HomeAssistantMCP:
 
     @asynccontextmanager
     async def connect(self) -> AsyncIterator[Client]:
+        headers = {"Authorization": f"Bearer {self.token}"} if self.token else {}
         async with httpx.AsyncClient(
-            headers={"Authorization": f"Bearer {self.token}"},
+            headers=headers,
             timeout=httpx.Timeout(30.0, read=300.0),
             follow_redirects=True,
         ) as http_client:
             transport = streamable_http_client(self.url, http_client=http_client, terminate_on_close=True)
             async with Client(transport) as client:
                 yield client
+
+
+class HostMCP(HomeAssistantMCP):
+    pass
 
 
 def mcp_tools_to_definitions(tools: list[Any]) -> list[ToolDefinition]:

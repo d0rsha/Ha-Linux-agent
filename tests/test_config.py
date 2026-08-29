@@ -8,7 +8,7 @@ def base(**overrides):
         "openai_api_key": "openai-key",
     }
     data.update(overrides)
-    return Settings(**data)
+    return Settings(_env_file=None, **data)
 
 
 def test_v01_openai_environment_remains_supported():
