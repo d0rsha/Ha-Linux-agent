@@ -3,6 +3,7 @@ from enum import StrEnum
 from typing import Any
 
 from .config import Settings
+from .host import HOST_TOOL_NAMES
 from .models import ToolDefinition
 
 
@@ -38,7 +39,11 @@ class ToolPolicy:
         self.sensitive_name_terms = settings.sensitive_name_terms
 
     def _is_read_tool(self, tool_name: str) -> bool:
-        return tool_name in self.read_tools or tool_name.startswith(self.read_prefixes)
+        return (
+            tool_name in HOST_TOOL_NAMES
+            or tool_name in self.read_tools
+            or tool_name.startswith(self.read_prefixes)
+        )
 
     def visible_tools(self, tools: list[ToolDefinition]) -> list[ToolDefinition]:
         visible: list[ToolDefinition] = []

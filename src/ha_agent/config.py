@@ -52,6 +52,25 @@ class Settings(BaseSettings):
     chat_min_interval_seconds: float = 2.0
     chat_sensitive_approval_ttl_seconds: int = 120
 
+    host_diagnostics_enabled: bool = True
+    host_mcp_urls: str = ""
+    host_mcp_token: str | None = None
+    host_mcp_bind: str = "127.0.0.1"
+    host_mcp_port: int = 8750
+    host_proc_root: str = "/proc"
+    host_disk_paths: str = "/"
+    host_service_allowlist: str = ""
+    host_docker_socket: str = ""
+    host_docker_allowlist: str = ""
+    host_log_paths: str = ""
+    host_journal_units: str = ""
+    host_log_max_bytes: int = 65536
+    host_log_max_age_seconds: int = 3600
+    host_reachability_targets: str = ""
+    host_reachability_timeout_seconds: float = 3.0
+
+    audit_log_path: str = ""
+
     @staticmethod
     def _csv(value: str) -> frozenset[str]:
         return frozenset(item.strip() for item in value.split(",") if item.strip())
@@ -133,3 +152,46 @@ class Settings(BaseSettings):
             return frozenset(int(item) for item in self._csv(self.telegram_allowed_users))
         except ValueError as exc:
             raise ValueError("TELEGRAM_ALLOWED_USERS must contain numeric Telegram user IDs") from exc
+
+    @property
+    def host_mcp_endpoint_urls(self) -> tuple[str, ...]:
+        return tuple(self._csv(self.host_mcp_urls))
+
+    @property
+    def host_disk_path_set(self) -> frozenset[str]:
+        return self._csv(self.host_disk_paths or "/")
+
+    @property
+    def host_service_allowlist_set(self) -> frozenset[str]:
+        return self._csv(self.host_service_allowlist)
+
+    @property
+    def host_docker_allowlist_set(self) -> frozenset[str]:
+        return self._csv(self.host_docker_allowlist)
+
+    @property
+    def host_log_path_set(self) -> frozenset[str]:
+        return self._csv(self.host_log_paths)
+
+    @property
+    def host_journal_unit_set(self) -> frozenset[str]:
+        return self._csv(self.host_journal_units)
+
+    @property
+    def host_reachability_target_set(self) -> frozenset[str]:
+        return self._csv(self.host_reachability_targets)
+
+    @property
+    def secrets_for_redaction(self) -> tuple[str, ...]:
+        return tuple(
+            item
+            for item in (
+                self.ha_token,
+                self.llm_api_key,
+                self.openai_api_key,
+                self.openrouter_api_key,
+                self.telegram_bot_token,
+                self.host_mcp_token,
+            )
+            if item
+        )

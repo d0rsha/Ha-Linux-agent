@@ -8,12 +8,16 @@ from .agent import ask_home
 from .config import Settings
 from .ha_mcp import HomeAssistantMCP, mcp_tools_to_definitions
 from .history import HomeAssistantHistory
+from .host import HostDiagnostics, host_config_from_settings
+from .host_mcp import run_host_mcp
 from .models import ToolCall
 from .policy import PolicyDecision, ToolPolicy
 from .reporting import ReportAlreadyRunning, run_report
 from .telegram import run_telegram
 
 app = typer.Typer(no_args_is_help=True)
+host_app = typer.Typer(no_args_is_help=True)
+app.add_typer(host_app, name="host")
 
 
 def _configure_logging() -> None:
@@ -29,6 +33,14 @@ def _history_client(settings: Settings) -> HomeAssistantHistory:
         max_statistics_days=settings.ha_statistics_max_days,
         max_points=settings.ha_history_max_points,
     )
+
+
+def _host_client(settings: Settings) -> HostDiagnostics:
+    return HostDiagnostics(host_config_from_settings(settings))
+
+
+def _echo_json(payload: object) -> None:
+    typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
 
 
 @app.command()
@@ -98,9 +110,17 @@ def telegram_command() -> None:
     asyncio.run(run_telegram(settings))
 
 
+@app.command("host-mcp")
+def host_mcp_command() -> None:
+    """Run the restricted host diagnostics MCP server."""
+    _configure_logging()
+    settings = Settings()
+    run_host_mcp(settings)
+
+
 @app.command("tools")
 def tools_command() -> None:
-    """List Home Assistant MCP and local history tools visible to the agent."""
+    """List Home Assistant MCP and local tools visible to the agent."""
     settings = Settings()
 
     async def _run() -> None:
@@ -112,12 +132,80 @@ def tools_command() -> None:
             if settings.ha_history_enabled:
                 async with _history_client(settings) as history:
                     tools.extend(history.tool_definitions())
+            if settings.host_diagnostics_enabled:
+                tools.extend(_host_client(settings).tool_definitions())
             visible_names = {tool.name for tool in policy.visible_tools(tools)}
             for tool in tools:
                 status = "visible" if tool.name in visible_names else "blocked"
                 typer.echo(f"[{status}] {tool.name}: {tool.description}")
 
     asyncio.run(_run())
+
+
+@host_app.command("cpu")
+def host_cpu_command() -> None:
+    """Read CPU diagnostics directly, without using the LLM."""
+    _echo_json(_host_client(Settings()).get_cpu())
+
+
+@host_app.command("memory")
+def host_memory_command() -> None:
+    """Read memory diagnostics directly, without using the LLM."""
+    _echo_json(_host_client(Settings()).get_memory())
+
+
+@host_app.command("disk")
+def host_disk_command(path: str = typer.Option("/", "--path")) -> None:
+    """Read allow-listed disk usage directly, without using the LLM."""
+    _echo_json(_host_client(Settings()).get_disk_usage(path=path))
+
+
+@host_app.command("uptime")
+def host_uptime_command() -> None:
+    """Read host uptime directly, without using the LLM."""
+    _echo_json(_host_client(Settings()).get_host_uptime())
+
+
+@host_app.command("reachability")
+def host_reachability_command(target: str = typer.Argument(...)) -> None:
+    """Check allow-listed TCP reachability directly, without using the LLM."""
+
+    async def _run() -> None:
+        _echo_json(await _host_client(Settings()).check_host_reachability(target=target))
+
+    asyncio.run(_run())
+
+
+@host_app.command("service")
+def host_service_command(service: str = typer.Argument(...)) -> None:
+    """Read allow-listed systemd service status directly, without using the LLM."""
+    _echo_json(_host_client(Settings()).get_service_status(service=service))
+
+
+@host_app.command("docker")
+def host_docker_command() -> None:
+    """Read allow-listed Docker container status directly, without using the LLM."""
+
+    async def _run() -> None:
+        _echo_json(await _host_client(Settings()).get_docker_containers())
+
+    asyncio.run(_run())
+
+
+@host_app.command("logs")
+def host_logs_command(
+    path: str | None = typer.Option(None, "--path"),
+    journal_unit: str | None = typer.Option(None, "--journal-unit"),
+    max_bytes: int | None = typer.Option(None, "--max-bytes", min=1),
+) -> None:
+    """Read bounded allow-listed logs directly, without using the LLM."""
+    _echo_json(
+        _host_client(Settings()).read_selected_logs(
+            path=path,
+            journal_unit=journal_unit,
+            max_bytes=max_bytes,
+        )
+    )
 
 
 @app.command("history")
