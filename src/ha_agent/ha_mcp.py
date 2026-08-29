@@ -5,6 +5,8 @@ import httpx
 from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
+from .models import ToolDefinition
+
 
 class HomeAssistantMCP:
     def __init__(self, url: str, token: str) -> None:
@@ -18,39 +20,29 @@ class HomeAssistantMCP:
             timeout=httpx.Timeout(30.0, read=300.0),
             follow_redirects=True,
         ) as http_client:
-            transport = streamable_http_client(
-                self.url,
-                http_client=http_client,
-                terminate_on_close=True,
-            )
+            transport = streamable_http_client(self.url, http_client=http_client, terminate_on_close=True)
             async with Client(transport) as client:
                 yield client
 
 
-def mcp_tools_to_openai(tools: list[Any]) -> list[dict[str, Any]]:
-    converted: list[dict[str, Any]] = []
+def mcp_tools_to_definitions(tools: list[Any]) -> list[ToolDefinition]:
+    converted: list[ToolDefinition] = []
     for tool in tools:
-        converted.append(
-            {
-                "type": "function",
-                "name": tool.name,
-                "description": tool.description or tool.title or tool.name,
-                "parameters": tool.input_schema or {"type": "object", "properties": {}},
-                "strict": False,
-            }
-        )
+        schema = getattr(tool, "input_schema", None)
+        if schema is None:
+            schema = getattr(tool, "inputSchema", None)
+        converted.append(ToolDefinition(name=tool.name, description=tool.description or getattr(tool, "title", None) or tool.name, parameters=schema or {"type": "object", "properties": {}}))
     return converted
 
 
 def mcp_result_to_text(result: Any) -> str:
-    if getattr(result, "structured_content", None) is not None:
-        return str(result.structured_content)
-
+    structured = getattr(result, "structured_content", None)
+    if structured is None:
+        structured = getattr(result, "structuredContent", None)
+    if structured is not None:
+        return str(structured)
     parts: list[str] = []
     for block in getattr(result, "content", []) or []:
         text = getattr(block, "text", None)
-        if text:
-            parts.append(text)
-        else:
-            parts.append(str(block))
+        parts.append(text if text else str(block))
     return "\n".join(parts) if parts else "(no result)"
