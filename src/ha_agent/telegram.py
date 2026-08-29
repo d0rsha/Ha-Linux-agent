@@ -3,8 +3,9 @@ import logging
 
 import httpx
 
-from .chat import ChatService, JsonSessionStore
+from .chat import ChatService, SQLiteSessionStore
 from .config import Settings
+from .storage import SQLiteStore
 
 LOGGER = logging.getLogger("ha_agent.telegram")
 
@@ -16,9 +17,15 @@ class TelegramBot:
         self.settings = settings
         self.base_url = f"https://api.telegram.org/bot{settings.telegram_bot_token}"
         self.allowed_user_ids = settings.telegram_allowed_user_ids
+        store = SQLiteStore(
+            settings.state_db_path,
+            max_messages_per_session=settings.chat_context_messages,
+            conversation_retention_days=settings.conversation_retention_days,
+            audit_retention_days=settings.audit_retention_days,
+        )
         self.service = ChatService(
             settings,
-            JsonSessionStore(settings.chat_session_dir, max_messages=settings.chat_context_messages),
+            SQLiteSessionStore(store, secrets=settings.secrets_for_redaction),
         )
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(40.0, connect=10.0))
 
@@ -34,7 +41,6 @@ class TelegramBot:
         return body
 
     async def send_message(self, chat_id: int, text: str) -> None:
-        # Telegram text messages are limited to 4096 chars. Keep chunks conservative.
         chunks = [text[i : i + 3900] for i in range(0, len(text), 3900)] or ["(empty response)"]
         for chunk in chunks:
             await self._call("sendMessage", {"chat_id": chat_id, "text": chunk})
