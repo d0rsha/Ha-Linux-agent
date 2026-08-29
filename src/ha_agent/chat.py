@@ -119,6 +119,9 @@ class ChatService:
             approval_available = session.approve_sensitive_until >= time.time()
             approval_consumed = False
 
+            # A grant applies to this request only, and to at most one sensitive tool call.
+            session.approve_sensitive_until = 0.0
+
             def _confirm(_call: ToolCall, _decision: PolicyDecision) -> bool:
                 nonlocal approval_consumed
                 if approval_available and not approval_consumed:
@@ -126,9 +129,12 @@ class ChatService:
                     return True
                 return False
 
-            answer = await ask_home(self.settings, question, confirm_sensitive=_confirm)
-            if approval_consumed:
-                session.approve_sensitive_until = 0.0
+            try:
+                answer = await ask_home(self.settings, question, confirm_sensitive=_confirm)
+            finally:
+                # Persist grant consumption even when the provider/tool request fails.
+                self.store.save(session)
+
             now = time.time()
             session.messages.extend([ChatMessage("user", text, now), ChatMessage("assistant", answer, time.time())])
             session.messages = session.messages[-self.settings.chat_context_messages :]
