@@ -13,11 +13,15 @@ from .host_mcp import run_host_mcp
 from .models import ToolCall
 from .policy import PolicyDecision, ToolPolicy
 from .reporting import ReportAlreadyRunning, run_report
+from .security import redact_text
+from .storage import SQLiteStore
 from .telegram import run_telegram
 
 app = typer.Typer(no_args_is_help=True)
 host_app = typer.Typer(no_args_is_help=True)
+memory_app = typer.Typer(no_args_is_help=True)
 app.add_typer(host_app, name="host")
+app.add_typer(memory_app, name="memory")
 
 
 def _configure_logging() -> None:
@@ -39,6 +43,15 @@ def _host_client(settings: Settings) -> HostDiagnostics:
     return HostDiagnostics(host_config_from_settings(settings))
 
 
+def _state_store(settings: Settings) -> SQLiteStore:
+    return SQLiteStore(
+        settings.state_db_path,
+        max_messages_per_session=settings.chat_context_messages,
+        conversation_retention_days=settings.conversation_retention_days,
+        audit_retention_days=settings.audit_retention_days,
+    )
+
+
 def _echo_json(payload: object) -> None:
     typer.echo(json.dumps(payload, indent=2, ensure_ascii=False))
 
@@ -46,11 +59,7 @@ def _echo_json(payload: object) -> None:
 @app.command()
 def ask(
     question: str,
-    yes_sensitive: bool = typer.Option(
-        False,
-        "--yes-sensitive",
-        help="Approve sensitive actions for this one invocation without an interactive prompt.",
-    ),
+    yes_sensitive: bool = typer.Option(False, "--yes-sensitive", help="Approve sensitive actions for this one invocation without an interactive prompt."),
 ) -> None:
     """Ask a one-shot question about the home."""
     _configure_logging()
@@ -69,11 +78,7 @@ def ask(
 
 @app.command("report")
 def report_command(
-    anomalies_only: bool = typer.Option(
-        False,
-        "--anomalies-only",
-        help="Suppress delivery when the model reports no meaningful anomaly.",
-    ),
+    anomalies_only: bool = typer.Option(False, "--anomalies-only", help="Suppress delivery when the model reports no meaningful anomaly."),
 ) -> None:
     """Generate a non-interactive house-health report for cron/systemd."""
     _configure_logging()
@@ -87,7 +92,6 @@ def report_command(
         logging.getLogger("ha_agent.report").exception("scheduled report failed")
         typer.echo(f"report failed: {type(exc).__name__}: {exc}", err=True)
         raise typer.Exit(code=1) from exc
-
     if result.suppressed:
         typer.echo("NO_ALERT")
         return
@@ -114,8 +118,7 @@ def telegram_command() -> None:
 def host_mcp_command() -> None:
     """Run the restricted host diagnostics MCP server."""
     _configure_logging()
-    settings = Settings()
-    run_host_mcp(settings)
+    run_host_mcp(Settings())
 
 
 @app.command("tools")
@@ -142,53 +145,81 @@ def tools_command() -> None:
     asyncio.run(_run())
 
 
+@memory_app.command("list")
+def memory_list_command(
+    query: str | None = typer.Option(None, "--query"),
+    limit: int = typer.Option(20, "--limit", min=1, max=200),
+) -> None:
+    """Inspect explicitly selected long-term memory."""
+    items = _state_store(Settings()).list_memories(limit=limit, query=query)
+    _echo_json([item.__dict__ for item in items])
+
+
+@memory_app.command("set")
+def memory_set_command(key: str, value: str) -> None:
+    """Create or replace one explicit long-term memory item."""
+    settings = Settings()
+    safe_key = redact_text(key, settings.secrets_for_redaction)
+    safe_value = redact_text(value, settings.secrets_for_redaction)
+    if "[REDACTED]" in safe_key or "[REDACTED]" in safe_value:
+        typer.echo("Refusing to store a configured secret in memory.", err=True)
+        raise typer.Exit(code=2)
+    _state_store(settings).set_memory(safe_key, safe_value)
+    typer.echo(f"stored memory: {safe_key}")
+
+
+@memory_app.command("delete")
+def memory_delete_command(key: str) -> None:
+    """Delete one long-term memory item without touching audit history."""
+    deleted = _state_store(Settings()).delete_memory(key)
+    if not deleted:
+        typer.echo("memory not found", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"deleted memory: {key}")
+
+
+@app.command("audit")
+def audit_command(limit: int = typer.Option(100, "--limit", min=1, max=500)) -> None:
+    """Inspect SQLite tool-call audit metadata."""
+    _echo_json(_state_store(Settings()).list_audit(limit=limit))
+
+
 @host_app.command("cpu")
 def host_cpu_command() -> None:
-    """Read CPU diagnostics directly, without using the LLM."""
     _echo_json(_host_client(Settings()).get_cpu())
 
 
 @host_app.command("memory")
 def host_memory_command() -> None:
-    """Read memory diagnostics directly, without using the LLM."""
     _echo_json(_host_client(Settings()).get_memory())
 
 
 @host_app.command("disk")
 def host_disk_command(path: str = typer.Option("/", "--path")) -> None:
-    """Read allow-listed disk usage directly, without using the LLM."""
     _echo_json(_host_client(Settings()).get_disk_usage(path=path))
 
 
 @host_app.command("uptime")
 def host_uptime_command() -> None:
-    """Read host uptime directly, without using the LLM."""
     _echo_json(_host_client(Settings()).get_host_uptime())
 
 
 @host_app.command("reachability")
 def host_reachability_command(target: str = typer.Argument(...)) -> None:
-    """Check allow-listed TCP reachability directly, without using the LLM."""
-
     async def _run() -> None:
         _echo_json(await _host_client(Settings()).check_host_reachability(target=target))
-
     asyncio.run(_run())
 
 
 @host_app.command("service")
 def host_service_command(service: str = typer.Argument(...)) -> None:
-    """Read allow-listed systemd service status directly, without using the LLM."""
     _echo_json(_host_client(Settings()).get_service_status(service=service))
 
 
 @host_app.command("docker")
 def host_docker_command() -> None:
-    """Read allow-listed Docker container status directly, without using the LLM."""
-
     async def _run() -> None:
         _echo_json(await _host_client(Settings()).get_docker_containers())
-
     asyncio.run(_run())
 
 
@@ -198,14 +229,7 @@ def host_logs_command(
     journal_unit: str | None = typer.Option(None, "--journal-unit"),
     max_bytes: int | None = typer.Option(None, "--max-bytes", min=1),
 ) -> None:
-    """Read bounded allow-listed logs directly, without using the LLM."""
-    _echo_json(
-        _host_client(Settings()).read_selected_logs(
-            path=path,
-            journal_unit=journal_unit,
-            max_bytes=max_bytes,
-        )
-    )
+    _echo_json(_host_client(Settings()).read_selected_logs(path=path, journal_unit=journal_unit, max_bytes=max_bytes))
 
 
 @app.command("history")
@@ -213,13 +237,9 @@ def history_command(
     entity_ids: str = typer.Argument(..., help="Comma-separated Home Assistant entity IDs."),
     start_time: str = typer.Option(..., "--start", help="RFC3339 start timestamp."),
     end_time: str | None = typer.Option(None, "--end", help="RFC3339 end timestamp."),
-    all_changes: bool = typer.Option(
-        False, "--all-changes", help="Include non-significant state changes as well."
-    ),
+    all_changes: bool = typer.Option(False, "--all-changes", help="Include non-significant state changes as well."),
 ) -> None:
-    """Read recent Recorder history directly, without using the LLM."""
     settings = Settings()
-
     async def _run() -> None:
         async with _history_client(settings) as history:
             result = await history.get_history(
@@ -228,8 +248,7 @@ def history_command(
                 end_time=end_time,
                 significant_changes_only=not all_changes,
             )
-            typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
-
+            _echo_json(result)
     asyncio.run(_run())
 
 
@@ -240,19 +259,15 @@ def statistics_command(
     period: str = typer.Option("hour", "--period", help="5minute, hour, day, week, month, or year."),
     end_time: str | None = typer.Option(None, "--end", help="RFC3339 end timestamp."),
 ) -> None:
-    """Read long-term Recorder statistics directly, without using the LLM."""
     settings = Settings()
-
     async def _run() -> None:
         async with _history_client(settings) as history:
-            result = await history.get_statistics(
+            _echo_json(await history.get_statistics(
                 statistic_ids=[item.strip() for item in statistic_ids.split(",") if item.strip()],
                 start_time=start_time,
                 end_time=end_time,
                 period=period,
-            )
-            typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
-
+            ))
     asyncio.run(_run())
 
 
@@ -262,22 +277,15 @@ def statistics_list_command(
     statistic_type: str | None = typer.Option(None, "--type", help="Filter by mean or sum."),
     limit: int = typer.Option(100, "--limit", min=1, max=200),
 ) -> None:
-    """List long-term statistic IDs available from Home Assistant."""
     settings = Settings()
-
     async def _run() -> None:
         async with _history_client(settings) as history:
-            result = await history.list_statistics(
-                query=query, statistic_type=statistic_type, limit=limit
-            )
-            typer.echo(json.dumps(result, indent=2, ensure_ascii=False))
-
+            _echo_json(await history.list_statistics(query=query, statistic_type=statistic_type, limit=limit))
     asyncio.run(_run())
 
 
 @app.command("provider")
 def provider_command() -> None:
-    """Show resolved LLM provider configuration without revealing the API key."""
     settings = Settings()
     typer.echo(f"provider={settings.llm_provider}")
     typer.echo(f"model={settings.provider_model}")
