@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     ha_sensitive_name_terms: str = "lock,alarm,garage,front door,back door"
 
     report_prompt_path: str = "prompts/house_health.md"
-    report_lock_path: str = "/tmp/ha-linux-agent-report.lock"
+    report_lock_path: str = "/data/report.lock"
     report_timeout_seconds: int = 180
     report_retries: int = 1
     report_notify_service: str = ""
