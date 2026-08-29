@@ -37,6 +37,21 @@ class Settings(BaseSettings):
     ha_sensitive_domains: str = "lock,alarm_control_panel"
     ha_sensitive_name_terms: str = "lock,alarm,garage,front door,back door"
 
+    report_prompt_path: str = "prompts/house_health.md"
+    report_lock_path: str = "/data/report.lock"
+    report_timeout_seconds: int = 180
+    report_retries: int = 1
+    report_notify_service: str = ""
+    report_title: str = "Morning house health"
+    report_anomaly_title: str = "House anomaly"
+
+    telegram_bot_token: str | None = None
+    telegram_allowed_users: str = ""
+    chat_session_dir: str = "/data/chat"
+    chat_context_messages: int = 12
+    chat_min_interval_seconds: float = 2.0
+    chat_sensitive_approval_ttl_seconds: int = 120
+
     @staticmethod
     def _csv(value: str) -> frozenset[str]:
         return frozenset(item.strip() for item in value.split(",") if item.strip())
@@ -111,3 +126,10 @@ class Settings(BaseSettings):
     @property
     def sensitive_name_terms(self) -> frozenset[str]:
         return frozenset(item.lower() for item in self._csv(self.ha_sensitive_name_terms))
+
+    @property
+    def telegram_allowed_user_ids(self) -> frozenset[int]:
+        try:
+            return frozenset(int(item) for item in self._csv(self.telegram_allowed_users))
+        except ValueError as exc:
+            raise ValueError("TELEGRAM_ALLOWED_USERS must contain numeric Telegram user IDs") from exc

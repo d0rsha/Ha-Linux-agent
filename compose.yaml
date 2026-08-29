@@ -7,3 +7,19 @@ services:
     network_mode: host
     stdin_open: true
     tty: true
+    volumes:
+      - ha-agent-data:/data
+
+  ha-agent-telegram:
+    build: .
+    env_file:
+      - .env
+    command: ["telegram"]
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["telegram"]
+    volumes:
+      - ha-agent-data:/data
+
+volumes:
+  ha-agent-data:

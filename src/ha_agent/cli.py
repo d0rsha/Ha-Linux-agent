@@ -10,6 +10,8 @@ from .ha_mcp import HomeAssistantMCP, mcp_tools_to_definitions
 from .history import HomeAssistantHistory
 from .models import ToolCall
 from .policy import PolicyDecision, ToolPolicy
+from .reporting import ReportAlreadyRunning, run_report
+from .telegram import run_telegram
 
 app = typer.Typer(no_args_is_help=True)
 
@@ -51,6 +53,49 @@ def ask(
         )
 
     typer.echo(asyncio.run(ask_home(settings, question, confirm_sensitive=_confirm)))
+
+
+@app.command("report")
+def report_command(
+    anomalies_only: bool = typer.Option(
+        False,
+        "--anomalies-only",
+        help="Suppress delivery when the model reports no meaningful anomaly.",
+    ),
+) -> None:
+    """Generate a non-interactive house-health report for cron/systemd."""
+    _configure_logging()
+    settings = Settings()
+    try:
+        result = asyncio.run(run_report(settings, anomalies_only=anomalies_only))
+    except ReportAlreadyRunning as exc:
+        typer.echo(str(exc), err=True)
+        raise typer.Exit(code=75) from exc
+    except Exception as exc:
+        logging.getLogger("ha_agent.report").exception("scheduled report failed")
+        typer.echo(f"report failed: {type(exc).__name__}: {exc}", err=True)
+        raise typer.Exit(code=1) from exc
+
+    if result.suppressed:
+        typer.echo("NO_ALERT")
+        return
+    typer.echo(result.text)
+    if settings.report_notify_service and not result.delivered:
+        raise typer.Exit(code=2)
+
+
+@app.command("telegram")
+def telegram_command() -> None:
+    """Run the persistent Telegram chat transport."""
+    _configure_logging()
+    settings = Settings()
+    if not settings.telegram_bot_token:
+        typer.echo("TELEGRAM_BOT_TOKEN is required", err=True)
+        raise typer.Exit(code=2)
+    if not settings.telegram_allowed_user_ids:
+        typer.echo("TELEGRAM_ALLOWED_USERS must explicitly allow at least one user ID", err=True)
+        raise typer.Exit(code=2)
+    asyncio.run(run_telegram(settings))
 
 
 @app.command("tools")
