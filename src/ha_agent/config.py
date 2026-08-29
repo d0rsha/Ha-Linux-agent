@@ -52,6 +52,12 @@ class Settings(BaseSettings):
     chat_min_interval_seconds: float = 2.0
     chat_sensitive_approval_ttl_seconds: int = 120
 
+    state_enabled: bool = True
+    state_db_path: str = "/data/ha-agent.db"
+    conversation_retention_days: int = 30
+    audit_retention_days: int = 90
+    memory_context_items: int = 20
+
     host_diagnostics_enabled: bool = True
     host_mcp_urls: str = ""
     host_mcp_token: str | None = None
