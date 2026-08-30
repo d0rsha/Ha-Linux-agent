@@ -14,8 +14,8 @@ from .models import ToolCall
 from .policy import PolicyDecision, ToolPolicy
 from .reporting import ReportAlreadyRunning, run_report
 from .security import redact_text
+from .signal import run_signal
 from .storage import SQLiteStore
-from .telegram import run_telegram
 
 app = typer.Typer(no_args_is_help=True)
 host_app = typer.Typer(no_args_is_help=True)
@@ -100,18 +100,18 @@ def report_command(
         raise typer.Exit(code=2)
 
 
-@app.command("telegram")
-def telegram_command() -> None:
-    """Run the persistent Telegram chat transport."""
+@app.command("signal")
+def signal_command() -> None:
+    """Run the persistent Signal chat transport."""
     _configure_logging()
     settings = Settings()
-    if not settings.telegram_bot_token:
-        typer.echo("TELEGRAM_BOT_TOKEN is required", err=True)
+    if not settings.signal_number:
+        typer.echo("SIGNAL_NUMBER is required", err=True)
         raise typer.Exit(code=2)
-    if not settings.telegram_allowed_user_ids:
-        typer.echo("TELEGRAM_ALLOWED_USERS must explicitly allow at least one user ID", err=True)
+    if not settings.signal_allowed_sender_set:
+        typer.echo("SIGNAL_ALLOWED_SENDERS must explicitly allow at least one sender", err=True)
         raise typer.Exit(code=2)
-    asyncio.run(run_telegram(settings))
+    asyncio.run(run_signal(settings))
 
 
 @app.command("host-mcp")
