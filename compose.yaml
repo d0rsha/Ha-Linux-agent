@@ -33,5 +33,17 @@ services:
     volumes:
       - ha-agent-data:/data
 
+  openai-mcp-tunnel:
+    image: ghcr.io/openai/tunnel-client:v0.0.13
+    restart: unless-stopped
+    network_mode: host
+    profiles: ["secure-mcp-tunnel"]
+    environment:
+      CONTROL_PLANE_API_KEY: ${OPENAI_TUNNEL_API_KEY:?Set OPENAI_TUNNEL_API_KEY in .env}
+      CONTROL_PLANE_TUNNEL_ID: ${OPENAI_TUNNEL_ID:?Set OPENAI_TUNNEL_ID in .env}
+      MCP_SERVER_URL: ${HA_MCP_URL:?Set HA_MCP_URL in .env}
+      MCP_EXTRA_HEADERS: "Authorization: Bearer ${HA_TOKEN:?Set HA_TOKEN in .env}"
+    command: ["run"]
+
 volumes:
   ha-agent-data:
