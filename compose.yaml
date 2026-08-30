@@ -10,14 +10,24 @@ services:
     volumes:
       - ha-agent-data:/data
 
-  ha-agent-telegram:
+  signal-api:
+    image: bbernhard/signal-cli-rest-api:latest
+    restart: unless-stopped
+    profiles: ["signal"]
+    environment:
+      - MODE=native
+    volumes:
+      - signal-cli-data:/home/.local/share/signal-cli
+
+  ha-agent-signal:
     build: .
     env_file:
       - .env
-    command: ["telegram"]
+    command: ["signal"]
     restart: unless-stopped
-    network_mode: host
-    profiles: ["telegram"]
+    profiles: ["signal"]
+    depends_on:
+      - signal-api
     volumes:
       - ha-agent-data:/data
 
@@ -35,3 +45,4 @@ services:
 
 volumes:
   ha-agent-data:
+  signal-cli-data:
