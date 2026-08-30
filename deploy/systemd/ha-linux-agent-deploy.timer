@@ -1,0 +1,11 @@
+[Unit]
+Description=Check HA Linux Agent for updates
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=5min
+Persistent=true
+Unit=ha-linux-agent-deploy.service
+
+[Install]
+WantedBy=timers.target
