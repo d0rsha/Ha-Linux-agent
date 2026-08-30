@@ -13,6 +13,7 @@ The agent uses:
 - **Restricted host diagnostics** for read-only Linux CPU, memory, disk, service, Docker, log, uptime, and reachability evidence.
 - **External scheduling** (systemd/cron) for deterministic report runs.
 - **Transport-independent chat services**, with Telegram as the first adapter.
+- **Optional OpenAI Secure MCP Tunnel** for private ChatGPT access to the Home Assistant MCP endpoint without public ingress.
 
 Historical access never opens `home-assistant_v2.db` directly. InfluxDB and Grafana are not required.
 
@@ -60,6 +61,18 @@ Ask a question:
 ```bash
 docker compose run --rm ha-agent ask "How has indoor temperature changed over the last week?"
 ```
+
+## OpenAI Secure MCP Tunnel
+
+The optional `secure-mcp-tunnel` Compose profile runs OpenAI's `tunnel-client` alongside the agent and forwards ChatGPT MCP requests to the same private `HA_MCP_URL`. It uses the existing `HA_TOKEN` locally as a bearer header; the Home Assistant token is not configured in ChatGPT.
+
+Configure `OPENAI_TUNNEL_ID` and `OPENAI_TUNNEL_API_KEY` in `.env`, then start it with:
+
+```bash
+docker compose --profile secure-mcp-tunnel up -d openai-mcp-tunnel
+```
+
+This is intended for Home Assistant installations that should remain private or behind existing access controls such as Cloudflare Access. No inbound tunnel port is opened. See [`docs/secure-mcp-tunnel.md`](docs/secure-mcp-tunnel.md).
 
 ## Home Assistant historical analysis
 
