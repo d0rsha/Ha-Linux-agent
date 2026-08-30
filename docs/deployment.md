@@ -72,6 +72,18 @@ DEPLOY_SERVICES="ha-agent-telegram openai-mcp-tunnel"
 
 Only name services that exist in the merged `main` branch.
 
+## Compose deployment coverage
+
+Every service in `compose.yaml` that uses `build:` must also have an `image:` override in `compose.deploy.yaml`. This makes `docker compose ... up --no-build` use the published GHCR image instead of requiring source builds on the LAN server.
+
+CI enforces this invariant with:
+
+```bash
+python deploy/check_compose_coverage.py
+```
+
+If a future feature adds another locally built service, such as a new chat transport, CI fails until that service receives a matching deploy image override. Services that already use an external image, such as `openai-mcp-tunnel`, do not need an entry in `compose.deploy.yaml`.
+
 ## First deployment
 
 Run one deployment manually before enabling the timer:
