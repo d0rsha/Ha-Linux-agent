@@ -1,0 +1,12 @@
+services:
+  ha-agent:
+    image: ${HA_AGENT_IMAGE:-ghcr.io/d0rsha/ha-linux-agent:latest}
+    pull_policy: always
+
+  ha-agent-telegram:
+    image: ${HA_AGENT_IMAGE:-ghcr.io/d0rsha/ha-linux-agent:latest}
+    pull_policy: always
+
+  ha-agent-host-mcp:
+    image: ${HA_AGENT_IMAGE:-ghcr.io/d0rsha/ha-linux-agent:latest}
+    pull_policy: always
