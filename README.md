@@ -1,32 +1,22 @@
 # HA Linux Agent
 
-A small, headless AI agent that runs on a Linux server and uses Home Assistant through its MCP Server integration.
+A small, headless AI agent that runs on Linux and uses Home Assistant through its MCP Server integration.
 
 The project supports interactive questions, scheduled reports, persistent chat, Home Assistant history, restricted Linux host diagnostics, and optional private ChatGPT access through OpenAI Secure MCP Tunnel.
 
-## Start here
+## Responsibilities
 
-There are two different ways to run the project. Choose the one that matches what you are doing:
+This repository owns the application:
 
-- **Local/manual use** — build from the checked-out source and run commands with Docker Compose. Use this for development and ad-hoc CLI questions.
-- **Always-on server deployment** — run selected services in the background and let a systemd timer automatically pull new `main` revisions and GHCR images. Use this for a LAN server that should update itself after merges.
+- Python source and tests
+- the application Docker image
+- local/manual Docker Compose definitions
+- `.env.example` as the application configuration contract
+- feature-specific documentation
 
-For a permanent server installation, follow **[docs/deployment.md](docs/deployment.md)**. You do **not** need to manually start the containers before enabling automatic deployment; the deployment service performs the first `docker compose up -d` for you.
+Production deployment is intentionally outside this repository. A deployment system should consume the published container image and provide its own runtime configuration, secrets, networking, restart policies, and rollout mechanism.
 
-## Architecture
-
-The agent uses:
-
-- **Home Assistant MCP** for live context and policy-controlled actions.
-- **Home Assistant REST/WebSocket APIs** for read-only historical data and report notification delivery.
-- **Restricted host diagnostics** for read-only Linux CPU, memory, disk, service, Docker, log, uptime, and reachability evidence.
-- **External scheduling** (systemd/cron) for deterministic report runs.
-- **Transport-independent chat services**, with Telegram as the first adapter.
-- **Optional OpenAI Secure MCP Tunnel** for private ChatGPT access to the Home Assistant MCP endpoint without public ingress.
-
-Historical access never opens `home-assistant_v2.db` directly. InfluxDB and Grafana are not required.
-
-## Quick start: local/manual use
+## Quick start
 
 Requirements: Docker Engine + Docker Compose plugin.
 
@@ -50,27 +40,37 @@ Ask a question:
 docker compose run --rm ha-agent ask "How has indoor temperature changed over the last week?"
 ```
 
-These commands are one-shot containers. They do not enable automatic deployment and do not need to remain running.
+## Published container image
 
-## Permanent server deployment and automatic updates
-
-For an always-on LAN server, the repository contains a separate pull-based deployment path:
+Successful `main` builds publish:
 
 ```text
-merge to main
-    ↓
-GitHub Actions: tests + Docker build
-    ↓
-GHCR: ghcr.io/d0rsha/ha-linux-agent:latest
-    ↓
-LAN server systemd timer (every 5 minutes)
-    ↓
-git fetch/reset + docker compose pull + docker compose up -d
+ghcr.io/d0rsha/ha-linux-agent:latest
+ghcr.io/d0rsha/ha-linux-agent:sha-<commit>
 ```
 
-The **systemd timer**, not an already-running container, triggers automatic updates. The first manual start of `ha-linux-agent-deploy.service` pulls the current images and starts the configured services detached. After that, `ha-linux-agent-deploy.timer` checks for updates every five minutes.
+`latest` is convenient for continuously deployed environments. The commit-specific tag is suitable for pinning and rollback. See **[docs/container-image.md](docs/container-image.md)**.
 
-Complete installation, service selection, first deployment, timer activation, verification, GHCR visibility, and rollback instructions are in **[docs/deployment.md](docs/deployment.md)**.
+The repository's `compose.yaml` is primarily for local/manual operation. Production infrastructure should reference the published image directly rather than depending on deployment files from this repository.
+
+## Configuration contract
+
+`.env.example` documents the variables understood by the application and optional services. New required configuration should be added there in the same change that introduces it.
+
+A production deployment may keep non-secret configuration in its own private repository and inject secrets from its deployment secret store.
+
+## Architecture
+
+The agent uses:
+
+- **Home Assistant MCP** for live context and policy-controlled actions.
+- **Home Assistant REST/WebSocket APIs** for read-only historical data and report notification delivery.
+- **Restricted host diagnostics** for read-only Linux CPU, memory, disk, service, Docker, log, uptime, and reachability evidence.
+- **External scheduling** for deterministic report runs.
+- **Transport-independent chat services**, with Telegram as the first adapter.
+- **Optional OpenAI Secure MCP Tunnel** for private ChatGPT access to the Home Assistant MCP endpoint without public ingress.
+
+Historical access never opens `home-assistant_v2.db` directly. InfluxDB and Grafana are not required.
 
 ## Security model
 
@@ -82,13 +82,11 @@ There are independent permission boundaries:
 
 Unknown MCP tools are blocked by default. Administrative tools are prohibited. Sensitive writes require explicit confirmation. Scheduled reports are forcibly read-only even if interactive/chat writes are enabled.
 
-All tool output is treated as untrusted data before it is returned to the model. Secrets are redacted from model-visible tool output and audit logs. Each agent request receives a correlation ID, and `AUDIT_LOG_PATH` can enable a persistent JSONL audit trail.
+All tool output is treated as untrusted data before it is returned to the model. Secrets are redacted from model-visible tool output and audit logs.
 
 See **[docs/security.md](docs/security.md)** for the full security model.
 
-## Features and configuration
-
-### Home Assistant historical analysis
+## Home Assistant historical analysis
 
 History is enabled by default:
 
@@ -112,7 +110,7 @@ docker compose run --rm ha-agent statistics sensor.example --start 2026-08-01T00
 
 Missing or purged data is treated as missing data, not evidence that an event did not occur.
 
-### Host diagnostics
+## Host diagnostics
 
 Cheap local `/proc` diagnostics are enabled by default:
 
@@ -133,7 +131,7 @@ docker compose run --rm ha-agent host uptime
 
 Higher-risk surfaces require explicit allowlists. See **[docs/host-mcp.md](docs/host-mcp.md)**.
 
-### Scheduled reports
+## Scheduled reports
 
 Run a report manually:
 
@@ -141,31 +139,31 @@ Run a report manually:
 docker compose run --rm -T ha-agent report
 ```
 
-Configure Home Assistant delivery with `REPORT_NOTIFY_SERVICE`. See **[docs/scheduling.md](docs/scheduling.md)** for report scheduling.
+Configure Home Assistant delivery with `REPORT_NOTIFY_SERVICE`. See **[docs/scheduling.md](docs/scheduling.md)**.
 
-### Telegram persistent chat
+## Telegram persistent chat
 
-Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`, then run the Telegram service manually with:
+Configure `TELEGRAM_BOT_TOKEN` and `TELEGRAM_ALLOWED_USERS`, then run locally with:
 
 ```bash
 docker compose --profile telegram up -d ha-agent-telegram
 ```
 
-For a permanent auto-updating deployment, select `ha-agent-telegram` through the deployment configuration instead of maintaining a separate manual Compose process. See **[docs/telegram.md](docs/telegram.md)**.
+See **[docs/telegram.md](docs/telegram.md)**.
 
-### OpenAI Secure MCP Tunnel
+## OpenAI Secure MCP Tunnel
 
-The optional tunnel forwards ChatGPT MCP requests to the private Home Assistant MCP endpoint. `HA_TOKEN` remains on the LAN server and is sent as the MCP Authorization bearer header.
+The optional tunnel forwards ChatGPT MCP requests to a private Home Assistant MCP endpoint. `HA_TOKEN` remains on the machine running the tunnel and is sent as the MCP Authorization bearer header.
 
-For manual Compose operation:
+For local Compose operation:
 
 ```bash
 docker compose --profile secure-mcp-tunnel up -d openai-mcp-tunnel
 ```
 
-For a permanent auto-updating deployment, select `openai-mcp-tunnel` in the deployment configuration. See **[docs/secure-mcp-tunnel.md](docs/secure-mcp-tunnel.md)**.
+See **[docs/secure-mcp-tunnel.md](docs/secure-mcp-tunnel.md)**.
 
-### Persistent memory and audit data
+## Persistent memory and audit data
 
 Conversation, memory, and tool-call audit state can be persisted in SQLite under the shared data volume. See **[docs/memory.md](docs/memory.md)**.
 
@@ -211,7 +209,7 @@ Permission tiers:
 
 ## Documentation
 
-- **[Deployment and automatic updates](docs/deployment.md)** — production/LAN installation, GHCR, systemd timer, service selection, rollback.
+- **[Container image](docs/container-image.md)** — GHCR tags and the production-consumer contract.
 - **[Security](docs/security.md)** — policy boundaries, writes, secrets, audit handling.
 - **[OpenAI Secure MCP Tunnel](docs/secure-mcp-tunnel.md)** — private ChatGPT-to-Home-Assistant MCP access.
 - **[Host MCP](docs/host-mcp.md)** — restricted diagnostics for Linux hosts.
@@ -225,7 +223,6 @@ Permission tiers:
 ```bash
 python -m pip install -e '.[dev]'
 pytest -q
-python deploy/check_compose_coverage.py
 ```
 
-GitHub Actions runs the test suite and deployment Compose coverage checks for pushes and pull requests.
+GitHub Actions runs the test suite for pushes and pull requests. Successful `main` builds publish the application image to GHCR.
