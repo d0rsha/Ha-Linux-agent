@@ -45,8 +45,10 @@ class Settings(BaseSettings):
     report_title: str = "Morning house health"
     report_anomaly_title: str = "House anomaly"
 
-    telegram_bot_token: str | None = None
-    telegram_allowed_users: str = ""
+    signal_api_url: str = "http://signal-api:8080"
+    signal_number: str | None = None
+    signal_allowed_senders: str = ""
+    signal_poll_interval_seconds: float = 2.0
     chat_session_dir: str = "/data/chat"
     chat_context_messages: int = 12
     chat_min_interval_seconds: float = 2.0
@@ -153,11 +155,8 @@ class Settings(BaseSettings):
         return frozenset(item.lower() for item in self._csv(self.ha_sensitive_name_terms))
 
     @property
-    def telegram_allowed_user_ids(self) -> frozenset[int]:
-        try:
-            return frozenset(int(item) for item in self._csv(self.telegram_allowed_users))
-        except ValueError as exc:
-            raise ValueError("TELEGRAM_ALLOWED_USERS must contain numeric Telegram user IDs") from exc
+    def signal_allowed_sender_set(self) -> frozenset[str]:
+        return self._csv(self.signal_allowed_senders)
 
     @property
     def host_mcp_endpoint_urls(self) -> tuple[str, ...]:
@@ -196,7 +195,6 @@ class Settings(BaseSettings):
                 self.llm_api_key,
                 self.openai_api_key,
                 self.openrouter_api_key,
-                self.telegram_bot_token,
                 self.host_mcp_token,
             )
             if item
