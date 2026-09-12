@@ -9,4 +9,4 @@ def test_imports():
     import ha_agent.providers  # noqa: F401
     import ha_agent.reporting  # noqa: F401
     import ha_agent.security  # noqa: F401
-    import ha_agent.telegram  # noqa: F401
+    import ha_agent.signal  # noqa: F401
